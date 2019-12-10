@@ -12,6 +12,8 @@ from pprint import pprint
 from requests import Session
 from requests_futures.sessions import FuturesSession
 
+from tornado.websocket import websocket_connect
+
 class GatewayConfig:
 
     def __init__(self):
@@ -115,6 +117,10 @@ class Gateway:
         if r is None:
           return
         return r
+
+    def newThings(self, cb):
+        url = self.url('/new_things?jwt={}'.format(self.config.get('jwt'))).replace('http', 'ws', 1)
+        return websocket_connect(url, on_message_callback=cb)
 
     def discoverAttr(self, deviceId, endpointNum, clusterId):
         url = '/debug/device/{}/cmd/discoverAttr'.format(deviceId)

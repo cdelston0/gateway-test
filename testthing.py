@@ -29,33 +29,17 @@ class myProperty(Property):
         ret = super().get_value()
         return ret
 
-class myThing(Thing):
-
-    found = False
-
-    def __init__(self, id_, title, type_=[], description='', msgq=None):
-        super().__init__(id_, title, type_, description)
-        self.id_ = id_
-        self.msgq = msgq
-
-    def get_property_descriptions(self):
-        if not self.found:
-            self.found = True
-            self.msgq.put(self.id_)
-        return super().get_property_descriptions()
-
 class testThing():
 
     def __init__(self, port, propertyclass=myProperty, msgq=None):
         self.port = port
         self.hostname = '%s.local' % socket.gethostname()
         self.tid = 'http---%s-%s' % (self.hostname, self.port)
-        self.thing = myThing(
+        self.thing = Thing(
             'urn:dev:ops:my-testthing-%s' % port,
             'a testThing on port %s' % port,
             ['testThing'],
-            'A native webthing for testing',
-            msgq
+            'A native webthing for testing'
         )
         self.msgq = msgq
 
@@ -138,21 +122,6 @@ class testWebThingServer(threading.Thread):
         self.ioloop.add_callback(self.ioloop.stop)
         self.server.stop()
 
-    def wait_up(self, timeout):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(3)
-        while timeout != 0:
-            timeout -= 1
-            try:
-                s.connect((self.thing.hostname, self.port))
-                s.shutdown(socket.SHUT_RDWR)
-            except Exception as e:
-                time.sleep(1)
-            finally:
-                break
-        s.close()
-
-
 if __name__ == '__main__':
     port=8800
     logging.basicConfig(
@@ -166,9 +135,6 @@ if __name__ == '__main__':
     ws.start()
 
     try:
-        while True:
-            print(thing.thing.found)
-            time.sleep(1)
         ws.join()
     except KeyboardInterrupt:
         print ('Stopping webthing server')

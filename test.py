@@ -18,6 +18,7 @@ import time
 from pprint import pprint
 from datetime import datetime, timedelta
 from queue import Queue
+import asyncio
 
 from gateway.gateway import GatewayConfig, Gateway
 
@@ -25,7 +26,7 @@ GATEWAY_URL='http://beaglebone.local:8080'
 GATEWAY_USER='testuser@email.com'
 GATEWAY_PASS='testpass'
 
-NUM_THINGS=100
+NUM_THINGS=50
 
 PORT_START=8800
 
@@ -40,8 +41,32 @@ class GatewayTest(unittest.TestCase):
         self.gw.login(GATEWAY_USER, GATEWAY_PASS)
         self.msgq = Queue()
         self.tws = {}
+        self.things = []
 
-        # Start PORT_END-PORT_START native webthing instances on localhost
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        def newthing(thing):
+            thingdata = json.loads(thing)
+            port = thingdata['id'].split('-')[-1]
+            self.things.append(int(port))
+
+        async def all_things(ports):
+            ports = set(ports)
+            waiting = len(ports)
+            while ports != set(self.things):
+                still_waiting = len(ports.difference(set(self.things)))
+                if still_waiting != waiting:
+                    waiting = still_waiting
+                    print('{} Waiting for {} webthings'.format(datetime.now(), waiting))
+                await asyncio.sleep(1)
+            return True
+
+        # Register websocket on /new_things and wait for connection
+        future = self.gw.newThings(newthing)
+        result = loop.run_until_complete(future)
+
+        # Start num_things native webthing instances on localhost
         port_end = PORT_START + num_things
         for port in range(PORT_START, port_end):
             tt = testThing(port, msgq=self.msgq)
@@ -49,19 +74,10 @@ class GatewayTest(unittest.TestCase):
             tws.start()
             self.tws[port] = (tt, tws)
 
-        # Wait for last initialised webthing to be ready
-        self.tws[port_end-1][1].wait_up(10)
-
-        print('Waiting for things')
-        start = datetime.now()
-        ready = num_things
-        while not ready == 0:
-            item = self.msgq.get()
-            print(datetime.now(), item)
-            ready -= 1
-        print(datime.'All things ready')
-        end = datetime.now()
-        print('Thing setup time: ', end-start)
+        # Wait for gateway websocket to indicate that all things are ready
+        print('{} Waiting for {} webthings'.format(datetime.now(), len(list(self.tws.keys()))))
+        loop.run_until_complete(all_things(list(self.tws.keys())))
+        print('{} All webthings added'.format(datetime.now()))
 
     @classmethod
     def tearDownClass(self):
