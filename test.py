@@ -4,31 +4,30 @@
 command line interface.
 '''
 
-import argparse
-import json
-import logging
-import os
-import pathlib
-import sys
-import unittest
-from copy import deepcopy
-from testthing import testThing, testWebThingServer
-import threading
-import time
-from pprint import pprint
 from datetime import datetime, timedelta
-from queue import Queue
-import asyncio
-
 from gateway.gateway import GatewayConfig, Gateway
+# from pprint import pprint
+from queue import Queue
+from testthing import testThing, testWebThingServer
+import argparse
+import asyncio
+import json
+import sys
+import threading
+import unittest
 
-GATEWAY_URL='http://beaglebone.local:8080'
-GATEWAY_USER='testuser@email.com'
-GATEWAY_PASS='testpass'
+CONFIG = {
+    'gateway': {
+        'url': 'http://localhost:8080',
+        'user': '',
+        'password': '',
+    },
+    'things': {
+        'quantity': 5,
+        'port_start': 8800,
+    },
+}
 
-NUM_THINGS=5
-
-PORT_START=8800
 
 class GatewayTest(unittest.TestCase):
 
@@ -37,8 +36,8 @@ class GatewayTest(unittest.TestCase):
 
         self.config = GatewayConfig()
         self.config.set_root('gateways', 'testgateway')
-        self.gw = Gateway(GATEWAY_URL, self.config)
-        self.gw.login(GATEWAY_USER, GATEWAY_PASS)
+        self.gw = Gateway(CONFIG['gateway']['url'], self.config)
+        self.gw.login(CONFIG['gateway']['user'], CONFIG['gateway']['password'])
         self.msgq = Queue()
         self.tws = {}
         self.things = []
@@ -52,7 +51,7 @@ class GatewayTest(unittest.TestCase):
             port = thingdata['id'].split('-')[-1]
             self.things.append(int(port))
 
-        # Tracks 
+        # Tracks
         async def all_things(ports):
             ports = set(ports)
             waiting = len(ports)
@@ -69,8 +68,8 @@ class GatewayTest(unittest.TestCase):
         result = loop.run_until_complete(future)
 
         # Start num_things native webthing instances on localhost
-        port_end = PORT_START + num_things
-        for port in range(PORT_START, port_end):
+        port_end = CONFIG['things']['port_start'] + num_things
+        for port in range(CONFIG['things']['port_start'], port_end):
             tt = testThing(port, msgq=self.msgq)
             tws = testWebThingServer('native webthing on port %s' % port, tt, port)
             tws.start()
@@ -112,24 +111,24 @@ class SingleThingProvisioning(GatewayTest):
 
     def test_0_add_thing(self):
         '''Add a webthing to the gateway'''
-        thing = self.tws[PORT_START][0]
+        thing = self.tws[CONFIG['things']['port_start']][0]
         response = self.gw.addThing(thing.to_thing_POST_body())
         self.assertTrue(response.status_code in [200, 201])
 
     def test_1_check_thing_added(self):
         '''Check a webthing has been added'''
-        thing = self.tws[PORT_START][0]
+        thing = self.tws[CONFIG['things']['port_start']][0]
         self.assertTrue(thing.get_tid() in self.gw.things())
 
     def test_2_check_thing_property(self):
         '''Retrieve 'on' property for webthing from gateway'''
-        thing = self.tws[PORT_START][0]
+        thing = self.tws[CONFIG['things']['port_start']][0]
         prop = self.gw.property(thing.get_tid(), 'on')
         self.assertTrue('on' in list(prop.keys()))
 
     def test_3_thing_property_changed(self):
         '''Set 'on' property of webthing from the webthing'''
-        thing = self.tws[PORT_START][0]
+        thing = self.tws[CONFIG['things']['port_start']][0]
 
         thing.get_thing().set_property('on', True)
         # FIXME: RACE
@@ -143,7 +142,7 @@ class SingleThingProvisioning(GatewayTest):
 
     def test_4_change_thing_property(self):
         '''Set 'on' property of webthing from the gateway'''
-        thing = self.tws[PORT_START][0]
+        thing = self.tws[CONFIG['things']['port_start']][0]
 
         self.gw.property(thing.get_tid(), 'on', { 'on' : False })
         # FIXME: RACE
@@ -155,7 +154,7 @@ class SingleThingProvisioning(GatewayTest):
 
     def test_5_reset_thing_property(self):
         '''Set 'on' property of webthing to current value (i.e.: no change) from the gateway'''
-        thing = self.tws[PORT_START][0]
+        thing = self.tws[CONFIG['things']['port_start']][0]
 
         prop = self.gw.property(thing.get_tid(), 'on')
         self.assertTrue('on' in list(prop.keys()))
@@ -165,21 +164,22 @@ class SingleThingProvisioning(GatewayTest):
 
     def test_6_delete_thing(self):
         '''Delete the webthing from the gateway'''
-        thing = self.tws[PORT_START][0]
+        thing = self.tws[CONFIG['things']['port_start']][0]
         response = self.gw.deleteThing(thing.get_tid())
         self.assertTrue(response.status_code in [200, 204])
 
     def test_7_check_thing_deleted(self):
         '''Check the webthing is deleted'''
-        thing = self.tws[PORT_START][0]
+        thing = self.tws[CONFIG['things']['port_start']][0]
         self.assertFalse(thing.get_tid() in self.gw.things())
-            
+
 
 class MultipleThingProfiling(GatewayTest):
 
     @classmethod
     def setUpClass(self):
-        super().setUpClass(num_things=NUM_THINGS)
+        num_things = CONFIG['things']['quantity']
+        super().setUpClass(num_things=num_things)
 
     def test_0_add_all_webthings(self):
         '''Add all of the webthings, make sure we get a response from the gateway'''
@@ -189,7 +189,7 @@ class MultipleThingProfiling(GatewayTest):
 
     def test_1_strobe_all_webthings(self):
         '''Not a good test - just causes webthings to flip status, no checking or asserts'''
-        for i in range(0,10):
+        for i in range(0, 10):
 
             for port, (tt, tws) in self.tws.items():
                 thing = tt.get_thing()
@@ -228,7 +228,7 @@ class MultipleThingProfiling(GatewayTest):
             self.changed[tt.get_tid()] = []
             self.count[tt.get_tid()] = changes
 
-        # Spawn thread to listen for messages from webthing property set_value 
+        # Spawn thread to listen for messages from webthing property set_value
         msgthread = threading.Thread(target=self.wait_for_instance_property_changes)
         msgthread.start()
 
@@ -300,7 +300,7 @@ class MultipleThingProfiling(GatewayTest):
             self.changed[tt.get_tid()] = []
             self.count[tt.get_tid()] = num_changes
 
-        # Spawn thread to listen for messages from webthing property set_value 
+        # Spawn thread to listen for messages from webthing property set_value
         msgthread = threading.Thread(target=self.wait_for_instance_property_changes)
         msgthread.start()
 
@@ -319,7 +319,7 @@ class MultipleThingProfiling(GatewayTest):
         future = self.gw.thingWebsocket(thingWSMsg)
         skt = self.loop.run_until_complete(future)
 
-        # Wait for N messages from WS indicating 
+        # Wait for N messages from WS indicating
         # FIXME: Should wait for 'connected' : 'true' message for each?
         self.loop.run_until_complete(all_things(len(self.count)))
 
@@ -380,13 +380,12 @@ class MultipleThingProfiling(GatewayTest):
         print('Longest propagation time: {}'.format(maximum))
         #pprint(self.changed)
 
-
     def test_5_webthing_property_change(self):
 
         self.msgcount = 0
 
         def thingWSMsg(msg):
-            print('RCV ',msg)
+            print('RCV ', msg)
             self.msgcount += 1
 
         async def all_things(num):
@@ -400,31 +399,68 @@ class MultipleThingProfiling(GatewayTest):
 
         # Wait for N messages from WS indicating readiness
         # FIXME: Should wait for 'connected' : 'true' message for each?
-        self.loop.run_until_complete(all_things(NUM_THINGS))
+        self.loop.run_until_complete(all_things(CONFIG['things']['quantity']))
 
         for port, (tt, tws) in self.tws.items():
-           skt.write_message(json.dumps(
-               {
-                   "id" : tt.get_tid(), 
-                   "messageType": "setProperty",
-                   "data": {
-                   "idx": 10
-                   }
-               }))
+            skt.write_message(json.dumps(
+                {
+                    "id": tt.get_tid(),
+                    "messageType": "setProperty",
+                    "data": {
+                        "idx": 10
+                    }
+                }))
 
         self.loop.run_until_complete(asyncio.sleep(60))
-            
+
 
 def cleanup_all_webthings():
 
     config = GatewayConfig()
     config.set_root('gateways', 'testgateway')
-    gw = Gateway(GATEWAY_URL, config)
-    gw.login(GATEWAY_USER, GATEWAY_PASS)
+    gw = Gateway(CONFIG['gateway']['url'], config)
+    gw.login(CONFIG['gateway']['user'], CONFIG['gateway']['password'])
 
     things = gw.things()
     for thing in things:
         gw.deleteThing(thing)
 
+
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Gateway test client.')
+    parser.add_argument('--things-quantity',
+                        help='number of things to start',
+                        type=int,
+                        default=CONFIG['things']['quantity'])
+    parser.add_argument('--things-port-start',
+                        help='starting port number for things to listen on',
+                        type=int,
+                        default=CONFIG['things']['port_start'])
+    parser.add_argument('--gateway-url',
+                        help='URL of gateway',
+                        type=str,
+                        default=CONFIG['gateway']['url'])
+    parser.add_argument('--gateway-user',
+                        help='user to log into gateway with',
+                        type=str,
+                        required=True)
+    parser.add_argument('--gateway-password',
+                        help='password to log into gateway with',
+                        type=str,
+                        required=True)
+    args, remaining = parser.parse_known_args()
+
+    if args.things_quantity is not None:
+        CONFIG['things']['quantity'] = args.things_quantity
+
+    if args.things_port_start is not None:
+        CONFIG['things']['port_start'] = args.things_port_start
+
+    if args.gateway_url is not None:
+        CONFIG['gateway']['url'] = args.gateway_url
+
+    CONFIG['gateway']['user'] = args.gateway_user
+    CONFIG['gateway']['password'] = args.gateway_password
+
+    sys.argv = sys.argv[:1] + remaining
     unittest.main()
