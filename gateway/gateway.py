@@ -118,7 +118,7 @@ class Gateway:
           return
         return r
 
-    def newThings(self, cb):
+    def newThingsWebsocket(self, cb):
         url = self.url('/new_things?jwt={}'.format(self.config.get('jwt'))).replace('http', 'ws', 1)
         return websocket_connect(url, on_message_callback=cb)
 
@@ -191,8 +191,8 @@ class Gateway:
             return
         return r.json()
 
-    def property(self, id, propertyName, data=None, futures=False):
-        url = '/things/{}/properties/{}'.format(id, propertyName)
+    def property(self, id_, propertyName, data=None, futures=False):
+        url = '/things/{}/properties/{}'.format(id_, propertyName)
         if data is not None:
             r = self.put(url, data=data, futures=futures)
         else:
@@ -205,6 +205,11 @@ class Gateway:
             return
 
         return r.json()
+
+    def thingWebsocket(self, cb):
+        url = self.url('/things?jwt={}'.format(self.config.get('jwt'))).replace('http', 'ws', 1)
+        print(url)
+        return websocket_connect(url, on_message_callback=cb)
 
     def delete(self, path):
         while True:

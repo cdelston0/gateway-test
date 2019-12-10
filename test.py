@@ -26,7 +26,7 @@ GATEWAY_URL='http://beaglebone.local:8080'
 GATEWAY_USER='testuser@email.com'
 GATEWAY_PASS='testpass'
 
-NUM_THINGS=50
+NUM_THINGS=5
 
 PORT_START=8800
 
@@ -43,14 +43,16 @@ class GatewayTest(unittest.TestCase):
         self.tws = {}
         self.things = []
 
-        loop = asyncio.new_event_loop()
+        self.loop = loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
+        # Callback when ws message is received from the /new_thing socket
         def newthing(thing):
             thingdata = json.loads(thing)
             port = thingdata['id'].split('-')[-1]
             self.things.append(int(port))
 
+        # Tracks 
         async def all_things(ports):
             ports = set(ports)
             waiting = len(ports)
@@ -63,7 +65,7 @@ class GatewayTest(unittest.TestCase):
             return True
 
         # Register websocket on /new_things and wait for connection
-        future = self.gw.newThings(newthing)
+        future = self.gw.newThingsWebsocket(newthing)
         result = loop.run_until_complete(future)
 
         # Start num_things native webthing instances on localhost
@@ -199,11 +201,11 @@ class MultipleThingProfiling(GatewayTest):
 
     def wait_for_instance_property_changes(self):
         '''Thread to dequeue property set_value messages back from testThings'''
-
         # FIXME: Need timeout in case something loses messages
 
         while sum(list(self.count.values())) != 0:
             msg = self.msgq.get()
+            print(msg)
 
             msgparts = msg.split(':')
             thingid = msgparts[0]
@@ -283,6 +285,135 @@ class MultipleThingProfiling(GatewayTest):
 
     def test_4_property_change_no_wait_for_gateway(self):
         self.gateway_property_change_propagation_time(10, wait=False)
+
+    def test_6_webthing_property_change_ws(self):
+
+        wait = False
+        num_changes = 10
+
+        print('Sending {} property changes to {} webthings via websocket,{} waiting for gateway response'.format(
+            num_changes, len(self.tws), "" if wait else " not"))
+
+        self.changed = {}
+        self.count = {}
+        for port, (tt, tws) in self.tws.items():
+            self.changed[tt.get_tid()] = []
+            self.count[tt.get_tid()] = num_changes
+
+        # Spawn thread to listen for messages from webthing property set_value 
+        msgthread = threading.Thread(target=self.wait_for_instance_property_changes)
+        msgthread.start()
+
+        self.msgcount = 0
+
+        def thingWSMsg(msg):
+            print('RCV ',msg)
+            self.msgcount += 1
+
+        async def all_things(num):
+            while self.msgcount != num:
+                await asyncio.sleep(1)
+            return True
+
+        # Open websocket
+        future = self.gw.thingWebsocket(thingWSMsg)
+        skt = self.loop.run_until_complete(future)
+
+        # Wait for N messages from WS indicating 
+        # FIXME: Should wait for 'connected' : 'true' message for each?
+        self.loop.run_until_complete(all_things(len(self.count)))
+
+        # Fire off bunch of status changes
+
+        # For each message...
+        future = None
+        for idx in range(0, num_changes):
+
+            # ...send to each webthing
+            for port, (tt, tws) in self.tws.items():
+
+                thingid = tt.get_tid()
+
+                # Record the timestamp the message was submitted to the gateway
+                self.changed[thingid].append((idx, 's', datetime.now()))
+
+                # Write index property via websocket
+                future = skt.write_message(json.dumps(
+                    {
+                        "id" : thingid,
+                        "messageType": "setProperty",
+                        "data": { "idx": idx }
+                    })
+                )
+                self.loop.run_until_complete(future)
+
+        # Wait until last write_message future has completed
+        #self.loop.run_until_complete(future)
+        #self.loop.run_until_complete(asyncio.sleep(60))
+        msgthread.join()
+
+        intervals = {}
+        total = timedelta()
+        maximum = timedelta()
+
+        for port, (tt, tws) in self.tws.items():
+            thingid = tt.get_tid()
+            times = self.changed[thingid]
+
+            # Check sequence of received property changes
+            recseq = [ r[0] for r in times if r[1] is 'r' ]
+            print(thingid, 'sequence correct:', all(recseq[i] <= recseq[i+1] for i in range(len(recseq)-1)))
+
+            # Calculate propagtion times (time between send to gateway and thing property change)
+            times.sort(key=lambda x: x[0])
+            intervals[thingid] = [ (r[0], r[2] - s[2]) for s, r in zip(times[::2], times[1::2]) ]
+            deltas = [ x[1] for x in intervals[thingid] ]
+
+            # Calculate maximum and total propagation
+            newmax = max(deltas)
+            if newmax > maximum:
+                maximum = newmax
+            total += sum(deltas, timedelta(0))
+
+        #pprint(intervals)
+        print('Mean propagation time: {}'.format(total/(num_changes * len(self.tws))))
+        print('Longest propagation time: {}'.format(maximum))
+        #pprint(self.changed)
+
+
+    def test_5_webthing_property_change(self):
+
+        self.msgcount = 0
+
+        def thingWSMsg(msg):
+            print('RCV ',msg)
+            self.msgcount += 1
+
+        async def all_things(num):
+            while self.msgcount != num:
+                await asyncio.sleep(1)
+            return True
+
+        # Open websocket
+        future = self.gw.thingWebsocket(thingWSMsg)
+        skt = self.loop.run_until_complete(future)
+
+        # Wait for N messages from WS indicating readiness
+        # FIXME: Should wait for 'connected' : 'true' message for each?
+        self.loop.run_until_complete(all_things(NUM_THINGS))
+
+        for port, (tt, tws) in self.tws.items():
+           skt.write_message(json.dumps(
+               {
+                   "id" : tt.get_tid(), 
+                   "messageType": "setProperty",
+                   "data": {
+                   "idx": 10
+                   }
+               }))
+
+        self.loop.run_until_complete(asyncio.sleep(60))
+            
 
 def cleanup_all_webthings():
 
