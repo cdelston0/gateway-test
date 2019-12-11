@@ -6,8 +6,8 @@ command line interface.
 
 from datetime import datetime, timedelta
 from gateway.gateway import GatewayConfig, Gateway
-# from pprint import pprint
-from queue import Queue
+from pprint import pprint
+import queue
 from testthing import testThing, testWebThingServer
 import argparse
 import asyncio
@@ -15,6 +15,7 @@ import json
 import sys
 import threading
 import unittest
+import time
 
 CONFIG = {
     'gateway': {
@@ -38,7 +39,7 @@ class GatewayTest(unittest.TestCase):
         self.config.set_root('gateways', 'testgateway')
         self.gw = Gateway(CONFIG['gateway']['url'], self.config)
         self.gw.login(CONFIG['gateway']['user'], CONFIG['gateway']['password'])
-        self.msgq = Queue()
+        self.msgq = queue.Queue()
         self.tws = {}
         self.things = []
 
@@ -65,7 +66,10 @@ class GatewayTest(unittest.TestCase):
 
         # Register websocket on /new_things and wait for connection
         future = self.gw.newThingsWebsocket(newthing)
-        result = loop.run_until_complete(future)
+        skt = loop.run_until_complete(future)
+
+        # FIXME: RACE here - seem to miss first new_thing message?
+        time.sleep(1)
 
         # Start num_things native webthing instances on localhost
         port_end = CONFIG['things']['port_start'] + num_things
@@ -180,239 +184,168 @@ class MultipleThingProfiling(GatewayTest):
     def setUpClass(self):
         num_things = CONFIG['things']['quantity']
         super().setUpClass(num_things=num_things)
+        self.add_all_webthings(self)
 
-    def test_0_add_all_webthings(self):
+    def add_all_webthings(self):
         '''Add all of the webthings, make sure we get a response from the gateway'''
         for port, (tt, tws) in self.tws.items():
             response = self.gw.addThing(tt.to_thing_POST_body())
-            self.assertTrue(response.status_code in [200, 201])
+            #self.assertTrue(response.status_code in [200, 201])
 
-    def test_1_strobe_all_webthings(self):
-        '''Not a good test - just causes webthings to flip status, no checking or asserts'''
-        for i in range(0, 10):
+    #def test_1_strobe_all_webthings(self):
+        #'''Not a good test - just causes webthings to flip status, no checking or asserts'''
+        #for i in range(0, 10):
 
-            for port, (tt, tws) in self.tws.items():
-                thing = tt.get_thing()
-                thing.set_property('on', True)
+            #for port, (tt, tws) in self.tws.items():
+                #thing = tt.get_thing()
+                #thing.set_property('on', True)
 
-            for port, (tt, tws) in self.tws.items():
-                thing = tt.get_thing()
-                thing.set_property('on', False)
+            #for port, (tt, tws) in self.tws.items():
+                #thing = tt.get_thing()
+                #thing.set_property('on', False)
 
-    def wait_for_instance_property_changes(self):
-        '''Thread to dequeue property set_value messages back from testThings'''
-        # FIXME: Need timeout in case something loses messages
+    def recieve_webthing_messages(self):
+        '''Thread to dequeue property set_value messages from testThing instances'''
 
-        while sum(list(self.count.values())) != 0:
-            msg = self.msgq.get()
-            print(msg)
+        while sum(list(self.msgcnt.values())) != 0:
+            timeout=60
+            try:
+                msg = self.msgq.get(timeout=timeout)
+                #print(msg)
+            except queue.Empty:
+                pprint(f'Timed out waiting for messages from testThings after {timeout}s')
+                pprint(self.msgcnt)
+                pprint(self.msglog)
+                break
 
             msgparts = msg.split(':')
             thingid = msgparts[0]
             value = int(msgparts[1].split(' ')[-1])
 
             # Record the timestamp that the message was recieved
-            self.changed[thingid].append((value, 'r', datetime.now()))
-            self.count[thingid] -= 1
+            self.msglog[thingid].append((value, 'r', datetime.now()))
+            self.msgcnt[thingid] -= 1
 
-    def gateway_property_change_propagation_time(self, changes=1, wait=True):
+    def init_webthing_message_data(self, expectedcount):
+        '''Initialise variables used to record messages from the testThing instances'''
+        self.msglog = {}
+        self.msgcnt = {}
+        for port, (tt, tws) in self.tws.items():
+            self.msglog[tt.get_tid()] = []
+            self.msgcnt[tt.get_tid()] = expectedcount
 
-        num_changes = changes
+    def property_change_via_POST(self, thingid, prop, value, wait):
+        '''Change a webthing property via POST to the gateway'''
+        future = self.gw.property(thingid, prop, { prop : value }, futures=wait)
+        if wait:
+            future.result()
+
+    def calculate_webthing_property_change_times(self, changes):
+        '''Postprocess time differences between messages sent and recieved'''
+        intervals = {}
+        total = timedelta()
+        maximum = timedelta()
+
+        for port, (tt, tws) in self.tws.items():
+            thingid = tt.get_tid()
+            times = self.msglog[thingid]
+
+            # Check sequence of received property changes
+            recseq = [ r[0] for r in times if r[1] is 'r' ]
+            print(thingid, 'sequence correct:', all(recseq[i] <= recseq[i+1] for i in range(len(recseq)-1)))
+
+            # Calculate propagtion times (time between send to gateway and thing property change)
+            times.sort(key=lambda x: x[0])
+            intervals[thingid] = [ (r[0], r[2] - s[2]) for s, r in zip(times[::2], times[1::2]) ]
+            deltas = [ x[1] for x in intervals[thingid] ]
+
+            # Calculate maximum and total propagation
+            newmax = max(deltas)
+            if newmax > maximum:
+                maximum = newmax
+            total += sum(deltas, timedelta(0))
+
+        #pprint(intervals)
+        print('Mean propagation time: {}'.format(total/(changes * len(self.tws))))
+        print('Longest propagation time: {}'.format(maximum))
+        #pprint(self.msglog)
+
+    def gateway_send_property_changes_to_webthings(self, changes, changefn, wait=True):
+        '''Send property change messages to webthings'''
+        self.init_webthing_message_data(changes)
 
         print('Sending {} property changes to {} webthings,{} waiting for gateway response'.format(
-            num_changes, len(self.tws), "" if wait else " not"))
-
-        self.changed = {}
-        self.count = {}
-        for port, (tt, tws) in self.tws.items():
-            self.changed[tt.get_tid()] = []
-            self.count[tt.get_tid()] = changes
+            changes, len(self.tws), "" if wait else " not"))
 
         # Spawn thread to listen for messages from webthing property set_value
-        msgthread = threading.Thread(target=self.wait_for_instance_property_changes)
+        msgthread = threading.Thread(target=self.recieve_webthing_messages)
         msgthread.start()
 
-        # Fire off bunch of status changes
+        # FIXME: RACE? We seem to lose first property change(s) if we start sending too soon 
+        time.sleep(1)
 
-        # For each message...
-        for idx in range(0, num_changes):
+        # For each property change...
+        for idx in range(0, changes):
 
-            # ...send to each webthing
+            # ...and each webthing...
             for port, (tt, tws) in self.tws.items():
 
                 thingid = tt.get_tid()
+                self.msglog[thingid].append((idx, 's', datetime.now()))
 
-                # Record the timestamp the message was submitted to the gateway
-                self.changed[thingid].append((idx, 's', datetime.now()))
+                # ...send a property change to the thing
+                changefn(thingid, 'idx', idx, wait)
 
-                # Write index property via gateway
-                future = self.gw.property(thingid, 'idx', { 'idx' : idx }, futures=wait)
-                if wait:
-                    future.result()
-
+        # Wait for thread to finish recieving property change messages
         msgthread.join()
 
-        intervals = {}
-        total = timedelta()
-        maximum = timedelta()
+        # FIXME: Handle message counts being lower than expected (timeout)
 
-        for port, (tt, tws) in self.tws.items():
-            thingid = tt.get_tid()
-            times = self.changed[thingid]
 
-            # Check sequence of received property changes
-            recseq = [ r[0] for r in times if r[1] is 'r' ]
-            print(thingid, 'sequence correct:', all(recseq[i] <= recseq[i+1] for i in range(len(recseq)-1)))
+    def test_1_property_change_via_POST_wait_for_gateway(self):
+        changes=10
+        self.gateway_send_property_changes_to_webthings(changes, changefn=self.property_change_via_POST, wait=True)
+        self.calculate_webthing_property_change_times(changes)
 
-            # Calculate propagtion times (time between send to gateway and thing property change)
-            times.sort(key=lambda x: x[0])
-            intervals[thingid] = [ (r[0], r[2] - s[2]) for s, r in zip(times[::2], times[1::2]) ]
-            deltas = [ x[1] for x in intervals[thingid] ]
+    def test_2_property_change_via_POST_no_wait_for_gateway(self):
+        changes=10
+        self.gateway_send_property_changes_to_webthings(changes, changefn=self.property_change_via_POST, wait=False)
+        self.calculate_webthing_property_change_times(changes)
 
-            # Calculate maximum and total propagation
-            newmax = max(deltas)
-            if newmax > maximum:
-                maximum = newmax
-            total += sum(deltas, timedelta(0))
-
-        #pprint(intervals)
-        print('Mean propagation time: {}'.format(total/(num_changes * len(self.tws))))
-        print('Longest propagation time: {}'.format(maximum))
-        #pprint(self.changed)
-
-    def test_3_property_change_wait_for_gateway(self):
-        self.gateway_property_change_propagation_time(10, wait=True)
-
-    def test_4_property_change_no_wait_for_gateway(self):
-        self.gateway_property_change_propagation_time(10, wait=False)
-
-    def test_6_webthing_property_change_ws(self):
-
-        wait = False
-        num_changes = 10
-
-        print('Sending {} property changes to {} webthings via websocket,{} waiting for gateway response'.format(
-            num_changes, len(self.tws), "" if wait else " not"))
-
-        self.changed = {}
-        self.count = {}
-        for port, (tt, tws) in self.tws.items():
-            self.changed[tt.get_tid()] = []
-            self.count[tt.get_tid()] = num_changes
-
-        # Spawn thread to listen for messages from webthing property set_value
-        msgthread = threading.Thread(target=self.wait_for_instance_property_changes)
-        msgthread.start()
-
-        self.msgcount = 0
+    def init_thing_WS(self):
 
         def thingWSMsg(msg):
-            print('RCV ',msg)
-            self.msgcount += 1
+            pass
+            #thingdata = json.loads(msg)
+            #print('RCV ', msg)
 
-        async def all_things(num):
-            while self.msgcount != num:
-                await asyncio.sleep(1)
-            return True
-
-        # Open websocket
         future = self.gw.thingWebsocket(thingWSMsg)
-        skt = self.loop.run_until_complete(future)
+        return self.loop.run_until_complete(future)
 
-        # Wait for N messages from WS indicating
-        # FIXME: Should wait for 'connected' : 'true' message for each?
-        self.loop.run_until_complete(all_things(len(self.count)))
+        # FIXME: do we need to wait for <some_ready_condition> before starting to change properties?
+        #time.sleep(1)
 
-        # Fire off bunch of status changes
+    def property_change_via_WS(self, thingid, prop, value, wait):
+        future = self.skt.write_message(json.dumps(
+            {
+                "id" : thingid,
+                "messageType": "setProperty",
+                "data": { prop: value }
+            })
+        )
+        self.loop.run_until_complete(future)
 
-        # For each message...
-        future = None
-        for idx in range(0, num_changes):
+    def test_3_property_change_via_WS_wait_for_gateway(self):
+        changes=10
+        self.skt = self.init_thing_WS()
+        self.gateway_send_property_changes_to_webthings(changes, changefn=self.property_change_via_WS, wait=True)
+        self.calculate_webthing_property_change_times(changes)
 
-            # ...send to each webthing
-            for port, (tt, tws) in self.tws.items():
-
-                thingid = tt.get_tid()
-
-                # Record the timestamp the message was submitted to the gateway
-                self.changed[thingid].append((idx, 's', datetime.now()))
-
-                # Write index property via websocket
-                future = skt.write_message(json.dumps(
-                    {
-                        "id" : thingid,
-                        "messageType": "setProperty",
-                        "data": { "idx": idx }
-                    })
-                )
-                self.loop.run_until_complete(future)
-
-        # Wait until last write_message future has completed
-        #self.loop.run_until_complete(future)
-        #self.loop.run_until_complete(asyncio.sleep(60))
-        msgthread.join()
-
-        intervals = {}
-        total = timedelta()
-        maximum = timedelta()
-
-        for port, (tt, tws) in self.tws.items():
-            thingid = tt.get_tid()
-            times = self.changed[thingid]
-
-            # Check sequence of received property changes
-            recseq = [ r[0] for r in times if r[1] is 'r' ]
-            print(thingid, 'sequence correct:', all(recseq[i] <= recseq[i+1] for i in range(len(recseq)-1)))
-
-            # Calculate propagtion times (time between send to gateway and thing property change)
-            times.sort(key=lambda x: x[0])
-            intervals[thingid] = [ (r[0], r[2] - s[2]) for s, r in zip(times[::2], times[1::2]) ]
-            deltas = [ x[1] for x in intervals[thingid] ]
-
-            # Calculate maximum and total propagation
-            newmax = max(deltas)
-            if newmax > maximum:
-                maximum = newmax
-            total += sum(deltas, timedelta(0))
-
-        #pprint(intervals)
-        print('Mean propagation time: {}'.format(total/(num_changes * len(self.tws))))
-        print('Longest propagation time: {}'.format(maximum))
-        #pprint(self.changed)
-
-    def test_5_webthing_property_change(self):
-
-        self.msgcount = 0
-
-        def thingWSMsg(msg):
-            print('RCV ', msg)
-            self.msgcount += 1
-
-        async def all_things(num):
-            while self.msgcount != num:
-                await asyncio.sleep(1)
-            return True
-
-        # Open websocket
-        future = self.gw.thingWebsocket(thingWSMsg)
-        skt = self.loop.run_until_complete(future)
-
-        # Wait for N messages from WS indicating readiness
-        # FIXME: Should wait for 'connected' : 'true' message for each?
-        self.loop.run_until_complete(all_things(CONFIG['things']['quantity']))
-
-        for port, (tt, tws) in self.tws.items():
-            skt.write_message(json.dumps(
-                {
-                    "id": tt.get_tid(),
-                    "messageType": "setProperty",
-                    "data": {
-                        "idx": 10
-                    }
-                }))
-
-        self.loop.run_until_complete(asyncio.sleep(60))
-
+    def test_4_property_change_via_WS_no_wait_for_gateway(self):
+        changes=10
+        self.skt = self.init_thing_WS()
+        self.gateway_send_property_changes_to_webthings(changes, changefn=self.property_change_via_WS, wait=False)
+        self.calculate_webthing_property_change_times(changes)
 
 def cleanup_all_webthings():
 
