@@ -26,7 +26,7 @@ CONFIG = {
         'quantity': 5,
         'port_start': 8800,
     },
-    'changes': 100,
+    'changes': 10,
 }
 
 
@@ -285,8 +285,10 @@ class MultipleThingProfiling(GatewayTest):
         mean = total / (changes * len(self.tws))
         meanms = mean.total_seconds() * 1000
         maxms = maximum.total_seconds() * 1000
+        print('===')
         print(f'Mean propagation time: {meanms:.2f}ms')
         print(f'Longest propagation time: {maxms:.2f}ms')
+        print('===')
 
         #pprint(self.msglog)
 
@@ -294,7 +296,7 @@ class MultipleThingProfiling(GatewayTest):
         '''Send property change messages to webthings'''
         self.init_webthing_message_data(changes)
 
-        print('--- Sending {} property changes to {} webthings via ({} waiting for gateway response)'.format(
+        print('--- Sending {} property changes to {} webthings via {} ({} waiting for gateway response)'.format(
             changes, len(self.tws), changefn[1], "" if wait else " not"))
 
         # Spawn thread to listen for messages from webthing property set_value
