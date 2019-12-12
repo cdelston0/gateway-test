@@ -206,9 +206,8 @@ class Gateway:
 
         return r.json()
 
-    def thingWebsocket(self, cb):
+    def thingWebsocket(self, cb=None):
         url = self.url('/things?jwt={}'.format(self.config.get('jwt'))).replace('http', 'ws', 1)
-        print(url)
         return websocket_connect(url, on_message_callback=cb)
 
     def delete(self, path):

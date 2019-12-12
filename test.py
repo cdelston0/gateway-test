@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
-'''This file contains the main program for the Mozilla IoT gateway
-command line interface.
+'''FIXME: what is this?
 '''
 
 from datetime import datetime, timedelta
@@ -27,6 +26,7 @@ CONFIG = {
         'quantity': 5,
         'port_start': 8800,
     },
+    'changes': 10,
 }
 
 
@@ -252,11 +252,26 @@ class MultipleThingProfiling(GatewayTest):
 
             # Check sequence of received property changes
             recseq = [ r[0] for r in times if r[1] is 'r' ]
-            print(thingid, 'sequence correct:', all(recseq[i] <= recseq[i+1] for i in range(len(recseq)-1)))
+            correct = all(recseq[i+1] == (recseq[i] + 1) for i in range(len(recseq)-1))
+            print(thingid, 'sequence correct:', correct)
+            if not correct:
+                print(thingid, 'sequence was:', recseq)
+            
+                # Deduplicate list (workaround multiple propertyStatus messages returned by websocket
+                # interface), so that statistics work
+                duplicates = set()
+                times_first = []
+                for item in times:
+                    if (item[0], item[1]) not in duplicates:
+                        times_first.append(item)
+                        duplicates.add((item[0],item[1]))
+                times = times_first
 
             # Calculate propagtion times (time between send to gateway and thing property change)
             times.sort(key=lambda x: x[0])
+            #print(times[::2], times[1::2])
             intervals[thingid] = [ (r[0], r[2] - s[2]) for s, r in zip(times[::2], times[1::2]) ]
+            #pprint(intervals)
             deltas = [ x[1] for x in intervals[thingid] ]
 
             # Calculate maximum and total propagation
@@ -281,11 +296,8 @@ class MultipleThingProfiling(GatewayTest):
         msgthread = threading.Thread(target=self.recieve_webthing_messages)
         msgthread.start()
 
-        # FIXME: RACE? We seem to lose first property change(s) if we start sending too soon 
-        time.sleep(1)
-
         # For each property change...
-        for idx in range(0, changes):
+        for idx in range(1, changes + 1):
 
             # ...and each webthing...
             for port, (tt, tws) in self.tws.items():
@@ -303,27 +315,41 @@ class MultipleThingProfiling(GatewayTest):
 
 
     def test_1_property_change_via_POST_wait_for_gateway(self):
-        changes=10
+        '''POST property changes to a series of webthings via the gateway /things/<thingid> urls.
+           Requests are rate limited by waiting for the gateway HTTP response'''
+        changes=CONFIG['changes']
         self.gateway_send_property_changes_to_webthings(changes, changefn=self.property_change_via_POST, wait=True)
         self.calculate_webthing_property_change_times(changes)
 
     def test_2_property_change_via_POST_no_wait_for_gateway(self):
-        changes=10
+        '''POST property changes to a series of webthings via the gateway /things/<thingid> urls.
+           Doesn't wait for HTTP response to POST in between requests.'''
+        changes=CONFIG['changes']
         self.gateway_send_property_changes_to_webthings(changes, changefn=self.property_change_via_POST, wait=False)
         self.calculate_webthing_property_change_times(changes)
 
-    def init_thing_WS(self):
+    @asyncio.coroutine
+    async def wait_for_all_things_connected(self, skt):
+        '''Wait for gateway to indicate that all webthings in self.connected have connected'''
+        while not all(self.connected.values()):
+            msg = await skt.read_message()
+            msgdata = json.loads(msg)
+            if msgdata['messageType'] == 'connected' and msgdata['data'] == True:
+                self.connected[msgdata['id']] = True
 
-        def thingWSMsg(msg):
-            pass
-            #thingdata = json.loads(msg)
-            #print('RCV ', msg)
+        print(datetime.now(), 'All webthings connected')
+        return
 
-        future = self.gw.thingWebsocket(thingWSMsg)
-        return self.loop.run_until_complete(future)
+    def gateway_WS_wait_for_things_connected(self):
+        '''Open a new websocket on the gateway and wait for things to be connected'''
+        self.connected = {}
+        for port, (tt, tws) in self.tws.items():
+            self.connected[tt.get_tid()] = False
 
-        # FIXME: do we need to wait for <some_ready_condition> before starting to change properties?
-        #time.sleep(1)
+        skt = self.loop.run_until_complete(self.gw.thingWebsocket())
+        self.loop.run_until_complete(self.wait_for_all_things_connected(skt))
+
+        return skt
 
     def property_change_via_WS(self, thingid, prop, value, wait):
         future = self.skt.write_message(json.dumps(
@@ -333,19 +359,80 @@ class MultipleThingProfiling(GatewayTest):
                 "data": { prop: value }
             })
         )
-        self.loop.run_until_complete(future)
+        if wait:
+            self.loop.run_until_complete(future)
 
     def test_3_property_change_via_WS_wait_for_gateway(self):
-        changes=10
-        self.skt = self.init_thing_WS()
+        '''Send property changes to a series of webthings via the gateway websocket interface.
+           Requests are rate limited by waiting for socket send to complete'''
+        # FIXME: Not sure if waiting for socket send to complete actually constitutes rate limiting...
+        changes=CONFIG['changes']
+        self.skt = self.gateway_WS_wait_for_things_connected()
         self.gateway_send_property_changes_to_webthings(changes, changefn=self.property_change_via_WS, wait=True)
+        self.skt.close()
         self.calculate_webthing_property_change_times(changes)
 
     def test_4_property_change_via_WS_no_wait_for_gateway(self):
-        changes=10
-        self.skt = self.init_thing_WS()
+        '''Send property changes to a series of webthings via the gateway websocket interface.
+           Requests are not rate limited by waiting for socket send to complete'''
+        changes=CONFIG['changes']
+        self.skt = self.gateway_WS_wait_for_things_connected()
         self.gateway_send_property_changes_to_webthings(changes, changefn=self.property_change_via_WS, wait=False)
+        self.skt.close()
         self.calculate_webthing_property_change_times(changes)
+
+    @asyncio.coroutine
+    async def testthing_change_properties(self, changes):
+        '''Cause a sequence of property changes in running native webthings'''
+        for idx in range(1, changes + 1):
+            for port, (tt, tws) in self.tws.items():
+
+                thingid = tt.get_tid()
+                self.msglog[thingid].append((idx, 's', datetime.now()))
+
+                #print(datetime.now(), 'setting property {} to {}'.format('idx', idx))
+                tt.thing.set_property('idx', idx)
+
+                await asyncio.sleep(0)
+
+        return
+
+    @asyncio.coroutine
+    async def read_from_gateway_WS(self, skt, lastidx):
+        '''Wait for propertyStatus messages on the gateway websocket'''
+        while True:
+            msg = await skt.read_message()
+            #print(datetime.now(), 'read_from_gateway_WS', msg)
+
+            msgdata = json.loads(msg)
+            if msgdata['messageType'] == 'propertyStatus':
+                thingid = msgdata['id']
+
+                # Record the timestamp that the message was recieved
+                self.msglog[thingid].append((msgdata['data']['idx'], 'r', datetime.now()))
+                self.msgcnt[thingid] -= 1
+
+                #print(msgdata['data']['idx'], lastidx)
+                if msgdata['data']['idx'] == lastidx:
+                    print(datetime.now(), 'Last propertyStatus message received')
+                    break
+
+        return
+
+    def test_5_property_change_at_webthing(self):
+        '''Register with the gateway websocket, change properties at the webthing, check propertyStatus messages'''
+        changes=CONFIG['changes']
+        self.skt = self.gateway_WS_wait_for_things_connected()
+
+        self.init_webthing_message_data(changes)
+
+        self.loop.create_task(self.testthing_change_properties(changes))
+        self.loop.run_until_complete(self.read_from_gateway_WS(self.skt, changes))
+
+        self.calculate_webthing_property_change_times(changes)
+
+        self.skt.close()
+
 
 def cleanup_all_webthings():
 
