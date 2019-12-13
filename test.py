@@ -477,6 +477,10 @@ if __name__ == '__main__':
                         help='password to log into gateway with',
                         type=str,
                         required=True)
+    parser.add_argument('--property-changes',
+                        help='number of property changes to perform',
+                        type=int,
+                        default=CONFIG['changes'])
     args, remaining = parser.parse_known_args()
 
     if args.things_quantity is not None:
@@ -490,6 +494,7 @@ if __name__ == '__main__':
 
     CONFIG['gateway']['user'] = args.gateway_user
     CONFIG['gateway']['password'] = args.gateway_password
+    CONFIG['changes'] = args.property_changes
 
     sys.argv = sys.argv[:1] + remaining
     unittest.main()
