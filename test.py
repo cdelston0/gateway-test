@@ -222,6 +222,8 @@ class MultipleThingProfiling(GatewayTest):
             thingid = msgparts[0]
             value = int(msgparts[1].split(' ')[-1])
 
+            #print(f'r {value}')
+
             # Record the timestamp that the message was recieved
             self.msglog[thingid].append((value, 'r', datetime.now()))
             self.msgcnt[thingid] -= 1
@@ -256,23 +258,18 @@ class MultipleThingProfiling(GatewayTest):
             print(thingid, 'sequence correct:', correct)
             if not correct:
                 print(thingid, 'sequence was:', recseq)
-            
-                # Deduplicate list (workaround multiple propertyStatus messages returned by websocket
-                # interface), so that statistics work
-                duplicates = set()
-                times_first = []
-                for item in times:
-                    if (item[0], item[1]) not in duplicates:
-                        times_first.append(item)
-                        duplicates.add((item[0],item[1]))
-                times = times_first
 
             # Calculate propagtion times (time between send to gateway and thing property change)
             times.sort(key=lambda x: x[0])
             #print(times[::2], times[1::2])
+
             intervals[thingid] = [ (r[0], r[2] - s[2]) for s, r in zip(times[::2], times[1::2]) ]
-            #pprint(intervals)
             deltas = [ x[1] for x in intervals[thingid] ]
+
+            if any(x < timedelta(0) for x in deltas):
+                self.print_msglog()
+                #print(deltas)
+                pprint(intervals)
 
             # Calculate maximum and total propagation
             newmax = max(deltas)
@@ -312,6 +309,8 @@ class MultipleThingProfiling(GatewayTest):
                 thingid = tt.get_tid()
                 self.msglog[thingid].append((idx, 's', datetime.now()))
 
+                #print(f's {idx}')
+
                 # ...send a property change to the thing
                 changefn[0](thingid, 'idx', idx, wait)
 
@@ -325,15 +324,29 @@ class MultipleThingProfiling(GatewayTest):
         '''POST property changes to a series of webthings via the gateway /things/<thingid> urls.
            Requests are rate limited by waiting for the gateway HTTP response'''
         changes=CONFIG['changes']
+
+        self.skt = self.gateway_WS_wait_for_things_connected()
+
         self.gateway_send_property_changes_to_webthings(changes, changefn=(self.property_change_via_POST, 'POST'), wait=True)
         self.calculate_webthing_property_change_times(changes)
+
+        # Consume websocket messages so they don't affect future tests
+        self.loop.run_until_complete(self.read_from_gateway_WS(self.skt, changes))
+        self.skt.close()
+
 
     def test_2_property_change_via_POST_no_wait_for_gateway(self):
         '''POST property changes to a series of webthings via the gateway /things/<thingid> urls.
            Doesn't wait for HTTP response to POST in between requests.'''
         changes=CONFIG['changes']
+
+        self.skt = self.gateway_WS_wait_for_things_connected()
+
         self.gateway_send_property_changes_to_webthings(changes, changefn=(self.property_change_via_POST, 'POST'), wait=False)
         self.calculate_webthing_property_change_times(changes)
+
+        # Consume websocket messages so they don't affect future tests
+        self.loop.run_until_complete(self.read_from_gateway_WS(self.skt, changes))
 
     @asyncio.coroutine
     async def wait_for_all_things_connected(self, skt):
@@ -372,26 +385,34 @@ class MultipleThingProfiling(GatewayTest):
     def test_3_property_change_via_WS_wait_for_gateway(self):
         '''Send property changes to a series of webthings via the gateway websocket interface.
            Requests are rate limited by waiting for socket send to complete'''
-        # FIXME: Not sure if waiting for socket send to complete actually constitutes rate limiting...
         changes=CONFIG['changes']
+
         self.skt = self.gateway_WS_wait_for_things_connected()
         self.gateway_send_property_changes_to_webthings(changes, changefn=(self.property_change_via_WS, 'WS://'), wait=True)
-        self.skt.close()
         self.calculate_webthing_property_change_times(changes)
+
+        # Consume websocket messages so they don't affect future tests
+        self.loop.run_until_complete(self.read_from_gateway_WS(self.skt, changes))
+        self.skt.close()
 
     def test_4_property_change_via_WS_no_wait_for_gateway(self):
         '''Send property changes to a series of webthings via the gateway websocket interface.
            Requests are not rate limited by waiting for socket send to complete'''
         changes=CONFIG['changes']
+
         self.skt = self.gateway_WS_wait_for_things_connected()
         self.gateway_send_property_changes_to_webthings(changes, changefn=(self.property_change_via_WS, 'WS://'), wait=False)
-        self.skt.close()
         self.calculate_webthing_property_change_times(changes)
+
+        # Consume websocket messages so they don't affect future tests
+        self.loop.run_until_complete(self.read_from_gateway_WS(self.skt, changes))
+        self.skt.close()
 
     @asyncio.coroutine
     async def change_testthing_properties(self, changes):
         '''Cause a sequence of property changes in running native webthings'''
-        for idx in range(1, changes + 1):
+
+        for idx in changes:
             for port, (tt, tws) in self.tws.items():
 
                 thingid = tt.get_tid()
@@ -409,7 +430,6 @@ class MultipleThingProfiling(GatewayTest):
         '''Wait for propertyStatus messages on the gateway websocket'''
         while True:
             msg = await skt.read_message()
-            #print(datetime.now(), 'read_from_gateway_WS', msg)
 
             msgdata = json.loads(msg)
             if msgdata['messageType'] == 'propertyStatus':
@@ -419,27 +439,42 @@ class MultipleThingProfiling(GatewayTest):
                 self.msglog[thingid].append((msgdata['data']['idx'], 'r', datetime.now()))
                 self.msgcnt[thingid] -= 1
 
-                #print(msgdata['data']['idx'], lastidx)
-                if msgdata['data']['idx'] == lastidx:
-                    print(datetime.now(), 'Last propertyStatus message received')
+                # Stop once lastidx is reached
+                if all([x < 1 for x in self.msgcnt.values()]) and msgdata['data']['idx'] == lastidx:
                     break
 
         return
+
+    def print_msglog(self):
+        for thing, item in self.msglog.items():
+            print(thing)
+            for entry in item:
+                print(entry[0], entry[1], entry[2])
 
     def test_5_property_change_at_webthing(self):
         '''Register with the gateway websocket, change properties at the webthing, check propertyStatus messages'''
         changes=CONFIG['changes']
         self.skt = self.gateway_WS_wait_for_things_connected()
 
-        self.init_webthing_message_data(changes)
+        first = 100
+        last = first + changes
+
+        # Reset thing initial conditions to !first so the first 
+        # change definitely triggers a propertyStatus message
+        self.init_webthing_message_data(1)
+        for port, (tt, tws) in self.tws.items():
+            thingid = tt.get_tid()
+            self.property_change_via_POST(thingid, 'idx', 0, wait=True)
+        self.loop.run_until_complete(self.read_from_gateway_WS(self.skt, 0))
 
         print(f'--- Changing property of {len(self.tws)} webthings {changes} times, confirming change via gateway websocket')
 
-        self.loop.create_task(self.change_testthing_properties(changes))
-        self.loop.run_until_complete(self.read_from_gateway_WS(self.skt, changes))
+        self.init_webthing_message_data(changes)
+
+        self.loop.create_task(self.change_testthing_properties(range(first, last + 1)))
+        self.loop.run_until_complete(self.read_from_gateway_WS(self.skt, last))
 
         self.calculate_webthing_property_change_times(changes)
-
         self.skt.close()
 
 

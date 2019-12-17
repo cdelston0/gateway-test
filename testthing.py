@@ -26,8 +26,15 @@ class myProperty(Property):
         return super().set_value(value)
 
     def get_value(self):
+        #print('get_value called on myProperty')
         ret = super().get_value()
         return ret
+
+class myThing(Thing):
+
+    def property_notify(self, property_):
+        #print('property_notify called on myThing')
+        return super().property_notify(property_)
 
 class testThing():
 
@@ -35,7 +42,7 @@ class testThing():
         self.port = port
         self.hostname = '%s.local' % socket.gethostname()
         self.tid = 'http---%s-%s' % (self.hostname, self.port)
-        self.thing = Thing(
+        self.thing = myThing(
             'urn:dev:ops:my-testthing-%s' % port,
             'a testThing on port %s' % port,
             ['testThing'],
@@ -65,7 +72,7 @@ class testThing():
                               'type': 'integer',
                               'description': 'A numerical index of the thing',
                               'minimum': 0,
-                              'maximum': 1000,
+                              'maximum': 10000,
                               'unit': 'bar',
                           },
                           msgq=msgq, msgprefix=self.tid))
