@@ -3,10 +3,11 @@
 '''FIXME: what is this?
 '''
 
+import warnings
+
 from datetime import datetime, timedelta
 from gateway.gateway import GatewayConfig, Gateway
 from pprint import pprint
-import queue
 from testthing import testThing, testWebThingServer
 import argparse
 import asyncio
@@ -15,6 +16,9 @@ import sys
 import threading
 import unittest
 import time
+
+import queue
+from multiprocessing import Queue
 
 CONFIG = {
     'gateway': {
@@ -32,6 +36,17 @@ CONFIG = {
 
 class GatewayTest(unittest.TestCase):
 
+    @asyncio.coroutine
+    async def wait_for_new_things(self, skt):
+        '''Wait for gateway to indicate that new webthings are ready'''
+        while not all(self.new.values()):
+            msg = await skt.read_message()
+            msgdata = json.loads(msg)
+            port = msgdata['id'].split('-')[-1]
+            self.new[int(port)] = True
+
+        return
+
     @classmethod
     def setUpClass(self, num_things=1):
 
@@ -39,37 +54,14 @@ class GatewayTest(unittest.TestCase):
         self.config.set_root('gateways', 'testgateway')
         self.gw = Gateway(CONFIG['gateway']['url'], self.config)
         self.gw.login(CONFIG['gateway']['user'], CONFIG['gateway']['password'])
-        self.msgq = queue.Queue()
+        self.msgq = Queue()
         self.tws = {}
-        self.things = []
+        self.new = {}
+
+        warnings.filterwarnings("ignore",category=DeprecationWarning)
 
         self.loop = loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
-        # Callback when ws message is received from the /new_thing socket
-        def newthing(thing):
-            thingdata = json.loads(thing)
-            port = thingdata['id'].split('-')[-1]
-            self.things.append(int(port))
-
-        # Tracks
-        async def all_things(ports):
-            ports = set(ports)
-            waiting = len(ports)
-            while ports != set(self.things):
-                still_waiting = len(ports.difference(set(self.things)))
-                if still_waiting != waiting:
-                    waiting = still_waiting
-                    print('{} Waiting for {} webthings'.format(datetime.now(), waiting))
-                await asyncio.sleep(1)
-            return True
-
-        # Register websocket on /new_things and wait for connection
-        future = self.gw.newThingsWebsocket(newthing)
-        skt = loop.run_until_complete(future)
-
-        # FIXME: RACE here - seem to miss first new_thing message?
-        time.sleep(1)
 
         # Start num_things native webthing instances on localhost
         port_end = CONFIG['things']['port_start'] + num_things
@@ -78,10 +70,12 @@ class GatewayTest(unittest.TestCase):
             tws = testWebThingServer('native webthing on port %s' % port, tt, port)
             tws.start()
             self.tws[port] = (tt, tws)
+            self.new[port] = False
 
         # Wait for gateway websocket to indicate that all things are ready
         print('{} Waiting for {} webthings'.format(datetime.now(), len(list(self.tws.keys()))))
-        loop.run_until_complete(all_things(list(self.tws.keys())))
+        skt = loop.run_until_complete(self.gw.newThingsWebsocket())
+        loop.run_until_complete(self.wait_for_new_things(self, skt))
         print('{} All webthings added'.format(datetime.now()))
 
     @classmethod
@@ -99,9 +93,9 @@ class GatewayTest(unittest.TestCase):
         # Stop native webthing instances
         print('Stopping webthings')
         for port, (tt, tws) in self.tws.items():
-            tws.stop_loop()
+            tws.kill()
 
-        print('Waiting for webthing threads to exit')
+        print('Waiting for webthing processes to exit')
         # Wait for native webthing instances to join
         for port, (tt, tws) in self.tws.items():
             tws.join()

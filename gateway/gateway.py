@@ -118,7 +118,7 @@ class Gateway:
           return
         return r
 
-    def newThingsWebsocket(self, cb):
+    def newThingsWebsocket(self, cb=None):
         url = self.url('/new_things?jwt={}'.format(self.config.get('jwt'))).replace('http', 'ws', 1)
         return websocket_connect(url, on_message_callback=cb)
 

@@ -1,4 +1,8 @@
 from __future__ import division
+
+import warnings
+warnings.filterwarnings("ignore",category=DeprecationWarning)
+
 from webthing import (Action, Event, Property, SingleThing, Thing, Value,
                       WebThingServer)
 import logging
@@ -8,10 +12,14 @@ from datetime import datetime
 import socket
 from pprint import pprint
 import ctypes
-import threading
 import asyncio
 import time
-from queue import Queue
+
+import signal
+import os
+import sys
+
+from multiprocessing import Process
 
 class myProperty(Property):
 
@@ -112,22 +120,27 @@ import tornado
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
 asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
 
-class testWebThingServer(threading.Thread):
+class testWebThingServer(Process):
 
     def __init__(self, name, thing, port):
-        threading.Thread.__init__(self)
+        Process.__init__(self)
         self.name = name
         self.thing = thing
         self.port = port
+
+        signal.signal(signal.SIGTERM, self.exit_handler)
+        signal.signal(signal.SIGINT,  self.exit_handler)
 
     def run(self):
         self.ioloop = tornado.ioloop.IOLoop.instance()
         self.server = WebThingServer(SingleThing(self.thing.get_thing()), port=self.port)
         self.server.start()
+        self.pid = os.getpid()
 
-    def stop_loop(self):
-        self.ioloop.add_callback(self.ioloop.stop)
-        self.server.stop()
+    def exit_handler(self, sig, frame):
+        if os.getpid() == self.pid:
+            self.server.stop()
+            sys.exit()
 
 if __name__ == '__main__':
     port=8800
@@ -140,12 +153,4 @@ if __name__ == '__main__':
     print('Starting webthing server')
     ws = testWebThingServer('name', thing, port)
     ws.start()
-
-    try:
-        ws.join()
-    except KeyboardInterrupt:
-        print ('Stopping webthing server')
-        ws.stop_loop()
-        print ('Stopped webthing server')
-
-
+    ws.join()
