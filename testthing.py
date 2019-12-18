@@ -30,7 +30,7 @@ class myProperty(Property):
 
     def set_value(self, value):
         if self.msgq is not None:
-            self.msgq.put('%s: %s %s %s' % (self.msgprefix, self.href, self.name, value))
+            self.msgq.put((self.msgprefix, value, datetime.now()))
         return super().set_value(value)
 
     def get_value(self):

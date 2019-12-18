@@ -205,22 +205,15 @@ class MultipleThingProfiling(GatewayTest):
             timeout=60
             try:
                 msg = self.msgq.get(timeout=timeout)
-                #print(msg)
             except queue.Empty:
                 pprint(f'Timed out waiting for messages from testThings after {timeout}s')
                 pprint(self.msgcnt)
                 pprint(self.msglog)
                 break
 
-            msgparts = msg.split(':')
-            thingid = msgparts[0]
-            value = int(msgparts[1].split(' ')[-1])
-
-            #print(f'r {value}')
-
-            # Record the timestamp that the message was recieved
-            self.msglog[thingid].append((value, 'r', datetime.now()))
-            self.msgcnt[thingid] -= 1
+            # Record the property change value and timestamp
+            self.msglog[msg[0]].append((msg[1], 'r', msg[2]))
+            self.msgcnt[msg[0]] -= 1
 
     def init_webthing_message_data(self, expectedcount):
         '''Initialise variables used to record messages from the testThing instances'''
