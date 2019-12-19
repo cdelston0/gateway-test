@@ -14,6 +14,8 @@ from requests_futures.sessions import FuturesSession
 
 from tornado.websocket import websocket_connect
 
+from webthing.utils import get_ip
+
 class GatewayConfig:
 
     def __init__(self):
@@ -310,5 +312,24 @@ class Gateway:
 
     def url(self, path=''):
         return self.gateway_url + path
+
+    def setAdapterConfig(self, port_start, num_things):
+        ip = get_ip()
+        data = {
+            'config': {
+                'pollInterval': 30,
+                'urls': ['http://{}:{}/'.format(ip, port) for port in range(port_start, port_start + num_things)],
+            },
+        }
+        self.put('/addons/thing-url-adapter/config', data=data)
+
+    def clearAdapterConfig(self):
+        data = {
+            'config': {
+                'pollInterval': 30,
+                'urls': [],
+            },
+        }
+        self.put('/addons/thing-url-adapter/config', data=data)
 
 requests.packages.urllib3.disable_warnings()

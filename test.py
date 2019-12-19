@@ -72,6 +72,9 @@ class GatewayTest(unittest.TestCase):
             self.tws[port] = (tt, tws)
             self.new[port] = False
 
+        # Update the config for thing-url-adapter to speed up discovery
+        self.gw.setAdapterConfig(CONFIG['things']['port_start'], num_things)
+
         # Wait for gateway websocket to indicate that all things are ready
         print('{} Waiting for {} webthings'.format(datetime.now(), len(list(self.tws.keys()))))
         skt = loop.run_until_complete(self.gw.newThingsWebsocket())
@@ -475,6 +478,8 @@ def cleanup_all_webthings():
     things = gw.things()
     for thing in things:
         gw.deleteThing(thing)
+
+    gw.clearAdapterConfig()
 
 
 if __name__ == '__main__':
