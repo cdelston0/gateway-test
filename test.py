@@ -84,6 +84,8 @@ class GatewayTest(unittest.TestCase):
     @classmethod
     def tearDownClass(self):
 
+        self.gw.clearAdapterConfig()
+
         # Delete things from gateway, if they're in the list of things we added
         print('Deleting webthings')
         things = self.gw.things()

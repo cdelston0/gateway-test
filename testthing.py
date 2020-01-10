@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 from __future__ import division
 
 import warnings
@@ -19,7 +21,21 @@ import signal
 import os
 import sys
 
+from webthing.utils import get_ip
+
 from multiprocessing import Process
+
+
+class NoMDNSWebThingServer(WebThingServer):
+    '''Subclass of WebThingServer which disables zeroconf'''
+    def start(self):
+        """Start listening for incoming connections."""
+        self.server.listen(self.port)
+        tornado.ioloop.IOLoop.current().start()
+
+    def stop(self):
+        """Stop listening."""
+        self.server.stop()    
 
 class myProperty(Property):
 
@@ -48,7 +64,8 @@ class testThing():
 
     def __init__(self, port, propertyclass=myProperty, msgq=None):
         self.port = port
-        self.hostname = '%s.local' % socket.gethostname()
+        #self.hostname = '%s.local' % socket.gethostname()
+        self.hostname = get_ip()
         self.tid = 'http---%s-%s' % (self.hostname, self.port)
         self.thing = myThing(
             'urn:dev:ops:my-testthing-%s' % port,
