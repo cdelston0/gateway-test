@@ -66,10 +66,11 @@ class GatewayTest(unittest.TestCase):
         # Start num_things native webthing instances on localhost
         port_end = CONFIG['things']['port_start'] + num_things
         for port in range(CONFIG['things']['port_start'], port_end):
+            cmdq = Queue()
             tt = testThing(port, msgq=self.msgq)
-            tws = testWebThingServer('native webthing on port %s' % port, tt, port)
+            tws = testWebThingServer('native webthing on port %s' % port, tt, port, msgq=cmdq)
             tws.start()
-            self.tws[port] = (tt, tws)
+            self.tws[port] = (tt, tws, cmdq)
             self.new[port] = False
 
         # Update the config for thing-url-adapter to speed up discovery
@@ -97,12 +98,12 @@ class GatewayTest(unittest.TestCase):
 
         # Stop native webthing instances
         print('Stopping webthings')
-        for port, (tt, tws) in self.tws.items():
+        for port, (tt, tws, cmdq) in self.tws.items():
             tws.kill()
 
         print('Waiting for webthing processes to exit')
         # Wait for native webthing instances to join
-        for port, (tt, tws) in self.tws.items():
+        for port, (tt, tws, cmdq) in self.tws.items():
             tws.join()
 
 
@@ -187,7 +188,7 @@ class MultipleThingProfiling(GatewayTest):
 
     def add_all_webthings(self):
         '''Add all of the webthings, make sure we get a response from the gateway'''
-        for port, (tt, tws) in self.tws.items():
+        for port, (tt, tws, cmdq) in self.tws.items():
             response = self.gw.addThing(tt.to_thing_POST_body())
             #self.assertTrue(response.status_code in [200, 201])
 
@@ -195,11 +196,11 @@ class MultipleThingProfiling(GatewayTest):
         #'''Not a good test - just causes webthings to flip status, no checking or asserts'''
         #for i in range(0, 10):
 
-            #for port, (tt, tws) in self.tws.items():
+            #for port, (tt, tws, cmdq) in self.tws.items():
                 #thing = tt.get_thing()
                 #thing.set_property('on', True)
 
-            #for port, (tt, tws) in self.tws.items():
+            #for port, (tt, tws, cmdq) in self.tws.items():
                 #thing = tt.get_thing()
                 #thing.set_property('on', False)
 
@@ -224,7 +225,7 @@ class MultipleThingProfiling(GatewayTest):
         '''Initialise variables used to record messages from the testThing instances'''
         self.msglog = {}
         self.msgcnt = {}
-        for port, (tt, tws) in self.tws.items():
+        for port, (tt, tws, cmdq) in self.tws.items():
             self.msglog[tt.get_tid()] = []
             self.msgcnt[tt.get_tid()] = expectedcount
 
@@ -240,7 +241,7 @@ class MultipleThingProfiling(GatewayTest):
         total = timedelta()
         maximum = timedelta()
 
-        for port, (tt, tws) in self.tws.items():
+        for port, (tt, tws, cmdq) in self.tws.items():
             thingid = tt.get_tid()
             times = self.msglog[thingid]
 
@@ -296,12 +297,10 @@ class MultipleThingProfiling(GatewayTest):
         for idx in range(1, changes + 1):
 
             # ...and each webthing...
-            for port, (tt, tws) in self.tws.items():
+            for port, (tt, tws, cmdq) in self.tws.items():
 
                 thingid = tt.get_tid()
                 self.msglog[thingid].append((idx, 's', datetime.now()))
-
-                #print(f's {idx}')
 
                 # ...send a property change to the thing
                 changefn[0](thingid, 'idx', idx, wait)
@@ -355,7 +354,7 @@ class MultipleThingProfiling(GatewayTest):
     def gateway_WS_wait_for_things_connected(self):
         '''Open a new websocket on the gateway and wait for things to be connected'''
         self.connected = {}
-        for port, (tt, tws) in self.tws.items():
+        for port, (tt, tws, cmdq) in self.tws.items():
             self.connected[tt.get_tid()] = False
 
         skt = self.loop.run_until_complete(self.gw.thingWebsocket())
@@ -400,24 +399,21 @@ class MultipleThingProfiling(GatewayTest):
         self.loop.run_until_complete(self.read_from_gateway_WS(self.skt, changes))
         self.skt.close()
 
-    @asyncio.coroutine
     async def change_testthing_properties(self, changes):
         '''Cause a sequence of property changes in running native webthings'''
 
         for idx in changes:
-            for port, (tt, tws) in self.tws.items():
+            for port, (tt, tws, cmdq) in self.tws.items():
 
                 thingid = tt.get_tid()
                 self.msglog[thingid].append((idx, 's', datetime.now()))
 
-                #print(datetime.now(), 'setting property {} to {}'.format('idx', idx))
-                tt.thing.set_property('idx', idx)
+                cmdq.put((thingid, 'set_property', ('idx', idx)))
 
                 await asyncio.sleep(0)
 
         return
 
-    @asyncio.coroutine
     async def read_from_gateway_WS(self, skt, lastidx):
         '''Wait for propertyStatus messages on the gateway websocket'''
         while True:
@@ -427,8 +423,12 @@ class MultipleThingProfiling(GatewayTest):
             if msgdata['messageType'] == 'propertyStatus':
                 thingid = msgdata['id']
 
+                #try:
                 # Record the timestamp that the message was recieved
                 self.msglog[thingid].append((msgdata['data']['idx'], 'r', datetime.now()))
+                #except KeyError:
+                    #continue
+
                 self.msgcnt[thingid] -= 1
 
                 # Stop once lastidx is reached
@@ -454,7 +454,7 @@ class MultipleThingProfiling(GatewayTest):
         # Reset thing initial conditions to !first so the first 
         # change definitely triggers a propertyStatus message
         self.init_webthing_message_data(1)
-        for port, (tt, tws) in self.tws.items():
+        for port, (tt, tws, cmdq) in self.tws.items():
             thingid = tt.get_tid()
             self.property_change_via_POST(thingid, 'idx', 0, wait=True)
         self.loop.run_until_complete(self.read_from_gateway_WS(self.skt, 0))
@@ -481,7 +481,7 @@ def cleanup_all_webthings():
     for thing in things:
         gw.deleteThing(thing)
 
-    gw.clearAdapterConfig()
+    #gw.clearAdapterConfig()
 
 
 if __name__ == '__main__':

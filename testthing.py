@@ -23,8 +23,7 @@ import sys
 
 from webthing.utils import get_ip
 
-from multiprocessing import Process
-
+from multiprocessing import Process, Queue
 
 class NoMDNSWebThingServer(WebThingServer):
     '''Subclass of WebThingServer which disables zeroconf'''
@@ -50,15 +49,8 @@ class myProperty(Property):
         return super().set_value(value)
 
     def get_value(self):
-        #print('get_value called on myProperty')
         ret = super().get_value()
         return ret
-
-class myThing(Thing):
-
-    def property_notify(self, property_):
-        #print('property_notify called on myThing')
-        return super().property_notify(property_)
 
 class testThing():
 
@@ -67,7 +59,7 @@ class testThing():
         #self.hostname = '%s.local' % socket.gethostname()
         self.hostname = get_ip()
         self.tid = 'http---%s-%s' % (self.hostname, self.port)
-        self.thing = myThing(
+        self.thing = Thing(
             'urn:dev:ops:my-testthing-%s' % port,
             'a testThing on port %s' % port,
             ['testThing'],
@@ -133,26 +125,41 @@ class testThing():
     def get_tid(self):
         return self.tid
 
+    def handle_msgs(self, msgq):
+        '''IPC to call a method on the Thing'''
+        while True:
+            msg = msgq.get()
+            (tid, method, args) = msg
+            if tid == self.tid:
+                _method = getattr(self.thing, method)
+                _method(*args)
+
+
 import tornado
 from tornado.platform.asyncio import AnyThreadEventLoopPolicy
+from tornado.platform.asyncio import AsyncIOMainLoop
 asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
 
 class testWebThingServer(Process):
 
-    def __init__(self, name, thing, port):
+    def __init__(self, name, thing, port, msgq=None):
         Process.__init__(self)
         self.name = name
         self.thing = thing
         self.port = port
+        self.msgq = msgq
 
         signal.signal(signal.SIGTERM, self.exit_handler)
         signal.signal(signal.SIGINT,  self.exit_handler)
 
     def run(self):
-        self.ioloop = tornado.ioloop.IOLoop.instance()
-        self.server = WebThingServer(SingleThing(self.thing.get_thing()), port=self.port)
+        AsyncIOMainLoop().install()
+        self.ioloop = tornado.ioloop.IOLoop.current().asyncio_loop
+        self.server = NoMDNSWebThingServer(SingleThing(self.thing.get_thing()), port=self.port)
+        #self.server = WebThingServer(SingleThing(self.thing.get_thing()), port=self.port)
+        if self.msgq is not None:
+            self.ioloop.run_in_executor(None, self.thing.handle_msgs, self.msgq)
         self.server.start()
-        self.pid = os.getpid()
 
     def exit_handler(self, sig, frame):
         if os.getpid() == self.pid:
@@ -168,6 +175,7 @@ if __name__ == '__main__':
     thing = testThing(port, propertyclass=myProperty)
 
     print('Starting webthing server')
-    ws = testWebThingServer('name', thing, port)
+    msgq = Queue()
+    ws = testWebThingServer('name', thing, port, msgq)
     ws.start()
     ws.join()
