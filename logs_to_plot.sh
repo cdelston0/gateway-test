@@ -2,7 +2,7 @@
 
 grep Mean *.log | sed -n 's/testlog_\([^_]*\)[^:]*[^0-9]*\([0-9.]*\)ms/\1,\2/g; p' | sort -n > mean.csv
 grep Longest *.log | sed -n 's/testlog_\([^_]*\)[^:]*[^0-9]*\([0-9.]*\)ms/\1,\2/g; p' | sort -n > longest.csv
-csvjoin --columns 1 mean.csv longest.csv > logresults.csv
+csvjoin --columns 1 mean.csv longest.csv | sort -n -t, -k1,1 > logresults.csv
 gnuplot <<- EOF
 set terminal pngcairo nocrop enhanced font "verdana,10" size 1024,768
 set output 'plot.png'
