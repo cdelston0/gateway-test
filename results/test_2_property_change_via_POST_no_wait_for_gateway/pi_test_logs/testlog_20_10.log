@@ -1,0 +1,32 @@
+{'config': {'pollInterval': 30, 'urls': ['http://192.168.0.240:8800/', 'http://192.168.0.240:8801/', 'http://192.168.0.240:8802/', 'http://192.168.0.240:8803/', 'http://192.168.0.240:8804/', 'http://192.168.0.240:8805/', 'http://192.168.0.240:8806/', 'http://192.168.0.240:8807/', 'http://192.168.0.240:8808/', 'http://192.168.0.240:8809/', 'http://192.168.0.240:8810/', 'http://192.168.0.240:8811/', 'http://192.168.0.240:8812/', 'http://192.168.0.240:8813/', 'http://192.168.0.240:8814/', 'http://192.168.0.240:8815/', 'http://192.168.0.240:8816/', 'http://192.168.0.240:8817/', 'http://192.168.0.240:8818/', 'http://192.168.0.240:8819/']}}
+2020-01-09 16:28:09.828490 Waiting for 20 webthings
+2020-01-09 16:28:12.686153 All webthings added
+2020-01-09 16:28:19.041166 All webthings connected
+--- Sending 10 property changes to 20 webthings via POST ( not waiting for gateway response)
+http---192.168.0.240-8800 sequence correct: True
+http---192.168.0.240-8801 sequence correct: True
+http---192.168.0.240-8802 sequence correct: True
+http---192.168.0.240-8803 sequence correct: True
+http---192.168.0.240-8804 sequence correct: True
+http---192.168.0.240-8805 sequence correct: True
+http---192.168.0.240-8806 sequence correct: True
+http---192.168.0.240-8807 sequence correct: True
+http---192.168.0.240-8808 sequence correct: True
+http---192.168.0.240-8809 sequence correct: True
+http---192.168.0.240-8810 sequence correct: True
+http---192.168.0.240-8811 sequence correct: True
+http---192.168.0.240-8812 sequence correct: True
+http---192.168.0.240-8813 sequence correct: True
+http---192.168.0.240-8814 sequence correct: True
+http---192.168.0.240-8815 sequence correct: True
+http---192.168.0.240-8816 sequence correct: True
+http---192.168.0.240-8817 sequence correct: True
+http---192.168.0.240-8818 sequence correct: True
+http---192.168.0.240-8819 sequence correct: True
+===
+Mean propagation time: 21.72ms
+Longest propagation time: 60.55ms
+===
+Deleting webthings
+Stopping webthings
+Waiting for webthing processes to exit

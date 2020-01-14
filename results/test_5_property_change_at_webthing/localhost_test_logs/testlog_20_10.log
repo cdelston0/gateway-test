@@ -1,0 +1,31 @@
+2020-01-13 13:52:58.405440 Waiting for 20 webthings
+2020-01-13 13:52:58.937639 All webthings added
+2020-01-13 13:52:59.732283 All webthings connected
+--- Changing property of 20 webthings 10 times, confirming change via gateway websocket
+http---192.168.8.116-8800 sequence correct: True
+http---192.168.8.116-8801 sequence correct: True
+http---192.168.8.116-8802 sequence correct: True
+http---192.168.8.116-8803 sequence correct: True
+http---192.168.8.116-8804 sequence correct: True
+http---192.168.8.116-8805 sequence correct: True
+http---192.168.8.116-8806 sequence correct: True
+http---192.168.8.116-8807 sequence correct: True
+http---192.168.8.116-8808 sequence correct: True
+http---192.168.8.116-8809 sequence correct: True
+http---192.168.8.116-8810 sequence correct: True
+http---192.168.8.116-8811 sequence correct: True
+http---192.168.8.116-8812 sequence correct: True
+http---192.168.8.116-8813 sequence correct: True
+http---192.168.8.116-8814 sequence correct: True
+http---192.168.8.116-8815 sequence correct: True
+http---192.168.8.116-8816 sequence correct: True
+http---192.168.8.116-8817 sequence correct: True
+http---192.168.8.116-8818 sequence correct: True
+http---192.168.8.116-8819 sequence correct: True
+===
+Mean propagation time: 27.01ms
+Longest propagation time: 98.49ms
+===
+Deleting webthings
+Stopping webthings
+Waiting for webthing processes to exit

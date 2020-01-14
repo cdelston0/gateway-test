@@ -1,0 +1,42 @@
+{'config': {'pollInterval': 30, 'urls': ['http://192.168.8.116:8800/', 'http://192.168.8.116:8801/', 'http://192.168.8.116:8802/', 'http://192.168.8.116:8803/', 'http://192.168.8.116:8804/', 'http://192.168.8.116:8805/', 'http://192.168.8.116:8806/', 'http://192.168.8.116:8807/', 'http://192.168.8.116:8808/', 'http://192.168.8.116:8809/', 'http://192.168.8.116:8810/', 'http://192.168.8.116:8811/', 'http://192.168.8.116:8812/', 'http://192.168.8.116:8813/', 'http://192.168.8.116:8814/', 'http://192.168.8.116:8815/', 'http://192.168.8.116:8816/', 'http://192.168.8.116:8817/', 'http://192.168.8.116:8818/', 'http://192.168.8.116:8819/', 'http://192.168.8.116:8820/', 'http://192.168.8.116:8821/', 'http://192.168.8.116:8822/', 'http://192.168.8.116:8823/', 'http://192.168.8.116:8824/', 'http://192.168.8.116:8825/', 'http://192.168.8.116:8826/', 'http://192.168.8.116:8827/', 'http://192.168.8.116:8828/', 'http://192.168.8.116:8829/']}}
+2020-01-10 10:13:40.047384 Waiting for 30 webthings
+2020-01-10 10:13:40.540192 All webthings added
+2020-01-10 10:13:46.510559 All webthings connected
+--- Sending 10 property changes to 30 webthings via WS:// ( not waiting for gateway response)
+http---192.168.8.116-8800 sequence correct: True
+http---192.168.8.116-8801 sequence correct: True
+http---192.168.8.116-8802 sequence correct: True
+http---192.168.8.116-8803 sequence correct: True
+http---192.168.8.116-8804 sequence correct: True
+http---192.168.8.116-8805 sequence correct: True
+http---192.168.8.116-8806 sequence correct: True
+http---192.168.8.116-8807 sequence correct: True
+http---192.168.8.116-8808 sequence correct: True
+http---192.168.8.116-8809 sequence correct: True
+http---192.168.8.116-8810 sequence correct: True
+http---192.168.8.116-8811 sequence correct: True
+http---192.168.8.116-8812 sequence correct: True
+http---192.168.8.116-8813 sequence correct: True
+http---192.168.8.116-8814 sequence correct: True
+http---192.168.8.116-8815 sequence correct: True
+http---192.168.8.116-8816 sequence correct: True
+http---192.168.8.116-8817 sequence correct: True
+http---192.168.8.116-8818 sequence correct: True
+http---192.168.8.116-8819 sequence correct: True
+http---192.168.8.116-8820 sequence correct: True
+http---192.168.8.116-8821 sequence correct: True
+http---192.168.8.116-8822 sequence correct: True
+http---192.168.8.116-8823 sequence correct: True
+http---192.168.8.116-8824 sequence correct: True
+http---192.168.8.116-8825 sequence correct: True
+http---192.168.8.116-8826 sequence correct: True
+http---192.168.8.116-8827 sequence correct: True
+http---192.168.8.116-8828 sequence correct: True
+http---192.168.8.116-8829 sequence correct: True
+===
+Mean propagation time: 59.51ms
+Longest propagation time: 154.47ms
+===
+Deleting webthings
+Stopping webthings
+Waiting for webthing processes to exit

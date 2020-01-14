@@ -1,0 +1,22 @@
+{'config': {'pollInterval': 30, 'urls': ['http://192.168.0.240:8800/', 'http://192.168.0.240:8801/', 'http://192.168.0.240:8802/', 'http://192.168.0.240:8803/', 'http://192.168.0.240:8804/', 'http://192.168.0.240:8805/', 'http://192.168.0.240:8806/', 'http://192.168.0.240:8807/', 'http://192.168.0.240:8808/', 'http://192.168.0.240:8809/']}}
+2020-01-09 16:15:33.647389 Waiting for 10 webthings
+2020-01-09 16:15:36.333607 All webthings added
+2020-01-09 16:15:41.947123 All webthings connected
+--- Sending 10 property changes to 10 webthings via POST ( not waiting for gateway response)
+http---192.168.0.240-8800 sequence correct: True
+http---192.168.0.240-8801 sequence correct: True
+http---192.168.0.240-8802 sequence correct: True
+http---192.168.0.240-8803 sequence correct: True
+http---192.168.0.240-8804 sequence correct: True
+http---192.168.0.240-8805 sequence correct: True
+http---192.168.0.240-8806 sequence correct: True
+http---192.168.0.240-8807 sequence correct: True
+http---192.168.0.240-8808 sequence correct: True
+http---192.168.0.240-8809 sequence correct: True
+===
+Mean propagation time: 17.35ms
+Longest propagation time: 52.06ms
+===
+Deleting webthings
+Stopping webthings
+Waiting for webthing processes to exit
